@@ -8,8 +8,8 @@ description = "Issue commands across multiple interactive CLI sessions"
 
 [dependencies]
 anyhow = "1.0"
-regex = "1"
 ctrlc = "3.4"
+strip-ansi-escapes = "0.2"
 
 [[bin]]
 name = "via"

@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use regex::Regex;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::thread;
@@ -111,18 +110,22 @@ pub fn wait_for_prompt(session: &str, prompt: &str) -> Result<()> {
     anyhow::bail!("timeout waiting for prompt '{}'", prompt)
 }
 
-/// Process terminal output to clean up control characters and ANSI sequences
+/// Strip all ANSI escape sequences from raw bytes using the vte parser.
+pub fn strip_ansi(data: &[u8]) -> String {
+    let stripped = strip_ansi_escapes::strip(data);
+    String::from_utf8_lossy(&stripped).to_string()
+}
+
+/// Process terminal output to clean up escape sequences and control characters.
+/// Uses the vte terminal parser (via strip-ansi-escapes) for robust handling
+/// of all escape sequence types (CSI, OSC, DEC private modes, etc.).
 pub fn process_terminal_output(data: &[u8]) -> Result<String> {
-    // Convert to string (lossy conversion for invalid UTF-8)
-    let mut content = String::from_utf8_lossy(data).to_string();
+    // 1. Strip all ANSI/VT escape sequences
+    let mut content = strip_ansi(data);
 
-    // 1. Strip ANSI escape sequences: \x1b\[[0-9;]*[a-zA-Z]
-    let ansi_regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
-    content = ansi_regex.replace_all(&content, "").to_string();
-
-    // 2. Process carriage returns: split on \r and take the last line
-    if let Some(last_line) = content.split('\r').last() {
-        content = last_line.to_string();
+    // 2. Process carriage returns: split on \r and take the last segment
+    if let Some(last_segment) = content.split('\r').last() {
+        content = last_segment.to_string();
     }
 
     // 3. Remove control characters: bell (^G/\x07), backspace (^H/\x08), delete (\x7F)

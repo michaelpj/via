@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 
+use crate::prompt;
 use crate::session;
 
 #[derive(Debug)]
@@ -139,8 +140,8 @@ fn tail_since(session: &str, prompt: &str, window: usize) -> Result<()> {
 
     let lines = read_last_n_lines(&file, window)?;
 
-    // Find the last occurrence of prompt
-    if let Some(idx) = lines.iter().rposition(|line| line.contains(prompt)) {
+    // Find the last occurrence of prompt (strip ANSI before matching)
+    if let Some(idx) = lines.iter().rposition(|line| prompt::strip_ansi(line.as_bytes()).contains(prompt)) {
         // Print from that line onwards
         for line in &lines[idx..] {
             println!("{}", line);
@@ -159,10 +160,10 @@ fn tail_delim_internal(session: &str, prompt: &str, window: usize) -> Result<()>
 
     let lines = read_last_n_lines(&file, window)?;
 
-    // Find all occurrences of prompt
+    // Find all occurrences of prompt (strip ANSI before matching)
     let indices: Vec<usize> = lines.iter()
         .enumerate()
-        .filter(|(_, line)| line.contains(prompt))
+        .filter(|(_, line)| prompt::strip_ansi(line.as_bytes()).contains(prompt))
         .map(|(i, _)| i)
         .collect();
 
