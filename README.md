@@ -31,9 +31,9 @@ Interact with both from a third terminal:
 ```bash
 # Check what sessions are running
 $ via
-Session  Prompt Line  Working Directory  Command
-nix      nix-repl>    /home/me/projects  nix repl
-python   >>>          /home/me/projects  python
+Session  Status  Prompt Line  Working Directory  Command
+nix      live    nix-repl>    /home/me/projects  nix repl
+python   live    >>>          /home/me/projects  python
 
 # Send a command and get the result (delimiter is stored)
 $ via nix '1 + 1'

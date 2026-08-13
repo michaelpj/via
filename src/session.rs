@@ -58,7 +58,9 @@ pub fn list_sessions(simple: bool) -> Result<()> {
                         // Try to detect current prompt from stdout
                         let prompt = detect_prompt(&session_dir);
 
-                        sessions.push((name.to_string(), command, cwd, prompt));
+                        let status = session_status(&session_dir);
+
+                        sessions.push((name.to_string(), status, command, cwd, prompt));
                     }
                 }
             }
@@ -69,7 +71,7 @@ pub fn list_sessions(simple: bool) -> Result<()> {
 
     if simple {
         // Simple format: just session names
-        for (session, _, _, _) in sessions {
+        for (session, _, _, _, _) in sessions {
             println!("{}", session);
         }
     } else {
@@ -80,45 +82,73 @@ pub fn list_sessions(simple: bool) -> Result<()> {
 
         // Calculate column widths
         let max_session_len = sessions.iter()
-            .map(|(s, _, _, _)| s.len())
+            .map(|(s, _, _, _, _)| s.len())
             .max()
             .unwrap_or(7)
             .max(7); // "Session" header
 
+        let max_status_len = sessions.iter()
+            .map(|(_, s, _, _, _)| s.len())
+            .max()
+            .unwrap_or(6)
+            .max(6); // "Status" header
+
         let max_prompt_len = sessions.iter()
-            .map(|(_, _, _, p)| p.as_ref().map(|s| s.len()).unwrap_or(0))
+            .map(|(_, _, _, _, p)| p.as_ref().map(|s| s.len()).unwrap_or(0))
             .max()
             .unwrap_or(11)
             .max(11); // "Prompt Line" header
 
         let max_cwd_len = sessions.iter()
-            .map(|(_, _, c, _)| c.as_ref().map(|s| s.trim().len()).unwrap_or(0))
+            .map(|(_, _, _, c, _)| c.as_ref().map(|s| s.trim().len()).unwrap_or(0))
             .max()
             .unwrap_or(17)
             .max(17); // "Working Directory" header
 
         // Print header
-        println!("{:<width_session$}  {:<width_prompt$}  {:<width_cwd$}  Command",
-                 "Session", "Prompt Line", "Working Directory",
+        println!("{:<width_session$}  {:<width_status$}  {:<width_prompt$}  {:<width_cwd$}  Command",
+                 "Session", "Status", "Prompt Line", "Working Directory",
                  width_session = max_session_len,
+                 width_status = max_status_len,
                  width_prompt = max_prompt_len,
                  width_cwd = max_cwd_len);
 
         // Print sessions
-        for (session, command, cwd, prompt) in sessions {
+        for (session, status, command, cwd, prompt) in sessions {
             let prompt_str = prompt.as_deref().unwrap_or("");
             let cwd_str = cwd.as_ref().map(|c| c.trim()).unwrap_or("");
             let cmd_str = command.as_ref().map(|c| c.trim()).unwrap_or("");
 
-            println!("{:<width_session$}  {:<width_prompt$}  {:<width_cwd$}  {}",
-                     session, prompt_str, cwd_str, cmd_str,
+            println!("{:<width_session$}  {:<width_status$}  {:<width_prompt$}  {:<width_cwd$}  {}",
+                     session, status, prompt_str, cwd_str, cmd_str,
                      width_session = max_session_len,
+                     width_status = max_status_len,
                      width_prompt = max_prompt_len,
                      width_cwd = max_cwd_len);
         }
     }
 
     Ok(())
+}
+
+/// Whether a session's recorded teetty process is still running.
+///
+/// "live" / "stale" when the session has a pid file; "?" for sessions
+/// created by older versions of via that didn't record a pid.
+fn session_status(session_dir: &std::path::Path) -> &'static str {
+    let pid = fs::read_to_string(session_dir.join("pid"))
+        .ok()
+        .and_then(|s| s.trim().parse::<libc::pid_t>().ok());
+    match pid {
+        None => "?",
+        Some(pid) => {
+            // Signal 0 probes for existence without sending anything. EPERM
+            // means the process exists but belongs to another user.
+            let alive = unsafe { libc::kill(pid, 0) } == 0
+                || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+            if alive { "live" } else { "stale" }
+        }
+    }
 }
 
 /// Detect the current prompt from the stdout file (show last line, up to 20 chars)

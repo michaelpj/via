@@ -292,6 +292,19 @@ fn cmd_run(session: &str, args: &[String]) -> Result<()> {
                         Ok(c) => c,
                         Err(_) => std::process::exit(1),
                     };
+                    // Record the teetty pid so the session listing can tell
+                    // live sessions from stale ones
+                    let _ = std::fs::write(dir.join("pid"), child.id().to_string());
+                    // If this supervisor is signalled, kill teetty (and with it
+                    // the supervised command) so nothing is orphaned, then
+                    // clean up the session directory.
+                    let dir_for_cleanup = dir.clone();
+                    let teetty_pid = child.id() as libc::pid_t;
+                    ctrlc::set_handler(move || {
+                        libc::kill(teetty_pid, libc::SIGTERM);
+                        let _ = std::fs::remove_dir_all(&dir_for_cleanup);
+                        std::process::exit(130);
+                    }).ok();
                     let _ = child.wait();
                     let _ = std::fs::remove_dir_all(&dir);
                     std::process::exit(0);
@@ -314,16 +327,26 @@ fn cmd_run(session: &str, args: &[String]) -> Result<()> {
 
         Ok(())
     } else {
-        // Set up cleanup handler for Ctrl-C
+        // Run teetty in the foreground — blocks until the subprocess exits.
+        let mut child = cmd.spawn()
+            .with_context(|| "failed to execute teetty (is it installed?)")?;
+
+        // Record the teetty pid so the session listing can tell live
+        // sessions from stale ones
+        let _ = std::fs::write(dir.join("pid"), child.id().to_string());
+
+        // On SIGINT/SIGTERM/SIGHUP, kill teetty (and with it the supervised
+        // command) so nothing is orphaned, then clean up the session directory.
         let dir_for_cleanup = dir.clone();
+        let teetty_pid = child.id() as libc::pid_t;
         ctrlc::set_handler(move || {
+            unsafe { libc::kill(teetty_pid, libc::SIGTERM); }
             let _ = std::fs::remove_dir_all(&dir_for_cleanup);
             std::process::exit(130);
         }).ok();
 
-        // Run teetty in the foreground — blocks until the subprocess exits.
-        let status = cmd.status()
-            .with_context(|| "failed to execute teetty (is it installed?)")?;
+        let status = child.wait()
+            .with_context(|| "failed to wait for teetty")?;
 
         // Cleanup directory after teetty exits
         std::fs::remove_dir_all(&dir).ok();

@@ -186,6 +186,46 @@ else
   fail "--bg session cleaned up after exit" "dir still exists"
 fi
 
+# ── liveness & stale sessions ────────────────────────────────────────
+echo "# liveness & stale sessions"
+
+start_session test-live 'mock>'
+
+assert_ok "pid file written" test -f "$REPLS_DIR/test-live/pid"
+assert_ok "recorded pid is running" kill -0 "$(cat "$REPLS_DIR/test-live/pid")"
+assert_contains "live session listed as live" "live" "$VIA"
+
+# Fabricate a stale session: valid layout, but its process is gone
+sleep 0.1 &
+DEAD_PID=$!
+wait "$DEAD_PID"
+mkdir -p "$REPLS_DIR/test-dead"
+printf 'fake-command\n' > "$REPLS_DIR/test-dead/command"
+printf 'mock>\n' > "$REPLS_DIR/test-dead/delim"
+printf 'mock> ' > "$REPLS_DIR/test-dead/stdout"
+printf '%s\n' "$DEAD_PID" > "$REPLS_DIR/test-dead/pid"
+mkfifo "$REPLS_DIR/test-dead/stdin"
+
+assert_contains "dead session listed as stale" "stale" "$VIA"
+assert_stderr_contains "write to dead session fails fast" "appears to be dead" \
+  timeout 5 "$VIA" test-dead hello
+rm -rf "$REPLS_DIR/test-dead"
+
+stop_session test-live
+
+# ── SIGTERM cleanup ──────────────────────────────────────────────────
+echo "# SIGTERM cleanup"
+
+"$VIA" test-sig run --delim 'mock>' -- bash "$MOCK" 'mock>' >/dev/null 2>&1 &
+SUP_PID=$!
+for _ in $(seq 50); do [ -f "$REPLS_DIR/test-sig/pid" ] && break; sleep 0.1; done
+"$VIA" test-sig wait --timeout 10 >/dev/null 2>&1 || true
+TEETTY_PID=$(cat "$REPLS_DIR/test-sig/pid")
+kill -TERM "$SUP_PID"
+sleep 1
+assert_fails "SIGTERM removes session dir" test -e "$REPLS_DIR/test-sig"
+assert_fails "SIGTERM kills teetty" kill -0 "$TEETTY_PID"
+
 # ── error cases (no session running) ─────────────────────────────────
 echo "# error cases"
 

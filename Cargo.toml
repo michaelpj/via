@@ -8,7 +8,8 @@ description = "Issue commands across multiple interactive CLI sessions"
 
 [dependencies]
 anyhow = "1.0"
-ctrlc = "3.4"
+# "termination" so the cleanup handler also runs on SIGTERM/SIGHUP, not just Ctrl-C
+ctrlc = { version = "3.4", features = ["termination"] }
 libc = "0.2"
 strip-ansi-escapes = "0.2"
 
